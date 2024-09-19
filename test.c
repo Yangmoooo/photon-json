@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <vcruntime.h>
 
 #include "photjson.h"
 
@@ -121,15 +122,47 @@ static void test_parse_str(void)
     TEST_STR("\xF0\x9D\x84\x9E", "\"\\ud834\\udd1e\"");
 }
 
-// static void test_parse_arr(void)
-// {
-//     phot_elem e;
-//     phot_init(&e);
-//     EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e, "[ ]"));
-//     EXPECT_EQ_INT(PHOT_ARR, phot_get_type(&e));
-//     EXPECT_EQ_SIZE_T(0, phot_get_arr_size(&e));
-//     phot_free(&e);
-// }
+static void test_parse_arr(void)
+{
+    phot_elem e;
+
+    phot_init(&e);
+    EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e, "[ ]"));
+    EXPECT_EQ_INT(PHOT_ARR, phot_get_type(&e));
+    EXPECT_EQ_SIZE_T(0, phot_get_arr_size(&e));
+    phot_free(&e);
+
+    phot_init(&e);
+    EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e, "[ null , false , true , 123 , \"abc\" ]"));
+    EXPECT_EQ_INT(PHOT_ARR, phot_get_type(&e));
+    EXPECT_EQ_SIZE_T(5, phot_get_arr_size(&e));
+    EXPECT_EQ_INT(PHOT_NULL, phot_get_type(phot_get_arr_elem(&e, 0)));
+    EXPECT_EQ_INT(PHOT_BOOL, phot_get_type(phot_get_arr_elem(&e, 1)));
+    EXPECT_EQ_INT(PHOT_BOOL, phot_get_type(phot_get_arr_elem(&e, 2)));
+    EXPECT_EQ_INT(PHOT_NUM, phot_get_type(phot_get_arr_elem(&e, 3)));
+    EXPECT_EQ_INT(PHOT_STR, phot_get_type(phot_get_arr_elem(&e, 4)));
+    EXPECT_EQ_BOOL(false, phot_get_bool(phot_get_arr_elem(&e, 1)));
+    EXPECT_EQ_BOOL(true, phot_get_bool(phot_get_arr_elem(&e, 2)));
+    EXPECT_EQ_DOUBLE(123.0, phot_get_num(phot_get_arr_elem(&e, 3)));
+    EXPECT_EQ_STR("abc", phot_get_str(phot_get_arr_elem(&e, 4)), phot_get_str_len(phot_get_arr_elem(&e, 4)));
+    phot_free(&e);
+
+    phot_init(&e);
+    EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e, "[ [ ] , [ 0 ] , [ 0 , 1 ] , [ 0 , 1 , 2 ] ]"));
+    EXPECT_EQ_INT(PHOT_ARR, phot_get_type(&e));
+    EXPECT_EQ_SIZE_T(4, phot_get_arr_size(&e));
+    for (size_t i = 0; i < 4; i++) {
+        phot_elem *e1 = phot_get_arr_elem(&e, i);
+        EXPECT_EQ_INT(PHOT_ARR, phot_get_type(e1));
+        EXPECT_EQ_SIZE_T(i, phot_get_arr_size(e1));
+        for (size_t j = 0; j < i; j++) {
+            phot_elem *e2 = phot_get_arr_elem(e1, j);
+            EXPECT_EQ_INT(PHOT_NUM, phot_get_type(e2));
+            EXPECT_EQ_DOUBLE((double)j, phot_get_num(e2));
+        }
+    }
+    phot_free(&e);
+}
 
 // 错误解析
 #define TEST_ERROR(error, json)                      \
@@ -161,6 +194,9 @@ static void test_parse_invalid_value(void)
     TEST_ERROR(PHOT_PARSE_INVALID_VALUE, "inf");
     TEST_ERROR(PHOT_PARSE_INVALID_VALUE, "NAN");
     TEST_ERROR(PHOT_PARSE_INVALID_VALUE, "nan");
+
+    TEST_ERROR(PHOT_PARSE_INVALID_VALUE, "[1,]");
+    TEST_ERROR(PHOT_PARSE_INVALID_VALUE, "[\"a\", nul]");
 }
 
 static void test_parse_root_not_singular(void)
@@ -223,12 +259,21 @@ static void test_parse_invalid_unicode_surrogate(void)
     TEST_ERROR(PHOT_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uD800\\uE000\"");
 }
 
+static void test_parse_miss_comma_or_square_bracket(void)
+{
+    TEST_ERROR(PHOT_PARSE_MISS_COMMA_OR_SQUARE_BRACKET, "[1");
+    TEST_ERROR(PHOT_PARSE_MISS_COMMA_OR_SQUARE_BRACKET, "[1}");
+    TEST_ERROR(PHOT_PARSE_MISS_COMMA_OR_SQUARE_BRACKET, "[1 2");
+    TEST_ERROR(PHOT_PARSE_MISS_COMMA_OR_SQUARE_BRACKET, "[[]");
+}
+
 static void test_parse(void)
 {
     test_parse_null();
     test_parse_bool();
     test_parse_num();
     test_parse_str();
+    test_parse_arr();
     test_parse_expect_value();
     test_parse_invalid_value();
     test_parse_root_not_singular();
@@ -238,6 +283,7 @@ static void test_parse(void)
     test_parse_invalid_str_char();
     test_parse_invalid_unicode_hex();
     test_parse_invalid_unicode_surrogate();
+    test_parse_miss_comma_or_square_bracket();
 }
 
 static void test_access_null(void)

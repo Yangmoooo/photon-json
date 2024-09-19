@@ -5,9 +5,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#ifdef _WIN32
-#include <vcruntime.h>
-#endif
 
 
 typedef enum { PHOT_NULL, PHOT_BOOL, PHOT_NUM, PHOT_STR, PHOT_ARR, PHOT_OBJ } phot_type;
@@ -19,11 +16,11 @@ struct phot_elem {
         double num;
         struct {
             char *str;
-            size_t len;
+            size_t s_len;
         };  // 字符串 长度
         struct {
-            phot_elem *elems;
-            size_t size;
+            phot_elem *arr;
+            size_t a_len;
         };  // 数组 元素个数
     };
     phot_type type;
@@ -41,6 +38,7 @@ enum {
     PHOT_PARSE_INVALID_STR_CHAR,
     PHOT_PARSE_INVALID_UNICODE_HEX,
     PHOT_PARSE_INVALID_UNICODE_SURROGATE,
+    PHOT_PARSE_MISS_COMMA_OR_SQUARE_BRACKET,
 };
 
 
