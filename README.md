@@ -18,13 +18,3 @@ As a learning project for myself, I am open to any suggestions, improvements, an
 ## License
 
 Photon JSON is licensed under the MIT License. See [LICENSE](LICENSE) for more information.
-
-## TODO
-
-- [x] Add null, boolean, number, and string types
-- [ ] Add array type
-- [ ] Add object type
-- [ ] Add generator
-- [ ] Implement querying
-- [ ] Implement modification
-- [ ] Complete error handling
