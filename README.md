@@ -7,7 +7,7 @@ Welcome to Photon JSON, a naive JSON library built as a C learning project. This
 - Standards-Compliant JSON Parser and Generator
 - Handwritten Recursive Descent Parser
 - Modern C11 Standard
-- Cross-Platform (MSYS2 may be required for Windows)
+- Cross-Platform (On Windows you may need Make and Bash provided by Git)
 - UTF-8 Support
 - Double Precision for Numbers
 
