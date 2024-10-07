@@ -9,22 +9,33 @@
 
 typedef enum { PHOT_NULL, PHOT_BOOL, PHOT_NUM, PHOT_STR, PHOT_ARR, PHOT_OBJ } phot_type;
 typedef struct phot_elem phot_elem;
+typedef struct phot_member phot_member;
 
 struct phot_elem {
     union {
         bool boolean;
         double num;
         struct {
-            char *str;
-            size_t s_len;
-        };  // 字符串 长度
+            char *str; // 字符串
+            size_t slen; // 长度
+        };
         struct {
-            phot_elem *arr;
-            size_t a_len;
-        };  // 数组 元素个数
+            phot_elem *arr; // 数组
+            size_t alen; // 元素个数
+        };  // 数组里保存的叫元素
+        struct {
+            phot_member *obj; // 对象
+            size_t olen; // 成员个数
+        };  // 对象里保存的叫成员
     };
     phot_type type;
 };
+
+struct phot_member {
+    char *key;
+    phot_elem value;
+    size_t klen;
+}; // 成员本身是键值对
 
 // enum 会自动声明为连续的常量，故在 C 中常用这种方式来声明一组常量
 enum {
@@ -39,6 +50,9 @@ enum {
     PHOT_PARSE_INVALID_UNICODE_HEX,
     PHOT_PARSE_INVALID_UNICODE_SURROGATE,
     PHOT_PARSE_MISS_COMMA_OR_SQUARE_BRACKET,
+    PHOT_PARSE_MISS_KEY,
+    PHOT_PARSE_MISS_COLON,
+    PHOT_PARSE_MISS_COMMA_OR_CURLY_BRACKET,
 };
 
 
@@ -62,5 +76,9 @@ size_t phot_get_str_len(const phot_elem *e);
 size_t phot_get_arr_size(const phot_elem *e);
 phot_elem *phot_get_arr_elem(const phot_elem *e, size_t index);
 
+size_t phot_get_obj_size(const phot_elem *e);
+const char *phot_get_obj_key(const phot_elem *e, size_t index);
+size_t phot_get_obj_key_len(const phot_elem *e, size_t index);
+phot_elem *phot_get_obj_value(const phot_elem *e, size_t index);
 
 #endif  // PHOTJSON_H_

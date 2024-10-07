@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <vcruntime.h>
 
 #include "photjson.h"
@@ -152,13 +153,63 @@ static void test_parse_arr(void)
     EXPECT_EQ_INT(PHOT_ARR, phot_get_type(&e));
     EXPECT_EQ_SIZE_T(4, phot_get_arr_size(&e));
     for (size_t i = 0; i < 4; i++) {
-        phot_elem *e1 = phot_get_arr_elem(&e, i);
-        EXPECT_EQ_INT(PHOT_ARR, phot_get_type(e1));
-        EXPECT_EQ_SIZE_T(i, phot_get_arr_size(e1));
+        phot_elem *ae1 = phot_get_arr_elem(&e, i);
+        EXPECT_EQ_INT(PHOT_ARR, phot_get_type(ae1));
+        EXPECT_EQ_SIZE_T(i, phot_get_arr_size(ae1));
         for (size_t j = 0; j < i; j++) {
-            phot_elem *e2 = phot_get_arr_elem(e1, j);
-            EXPECT_EQ_INT(PHOT_NUM, phot_get_type(e2));
-            EXPECT_EQ_DOUBLE((double)j, phot_get_num(e2));
+            phot_elem *ae2 = phot_get_arr_elem(ae1, j);
+            EXPECT_EQ_INT(PHOT_NUM, phot_get_type(ae2));
+            EXPECT_EQ_DOUBLE((double)j, phot_get_num(ae2));
+        }
+    }
+    phot_free(&e);
+}
+
+static void test_parse_obj(void)
+{
+    phot_elem e;
+
+    phot_init(&e);
+    EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e, "{ }"));
+    EXPECT_EQ_INT(PHOT_OBJ, phot_get_type(&e));
+    EXPECT_EQ_SIZE_T(0, phot_get_obj_size(&e));
+    phot_free(&e);
+
+    phot_init(&e);
+    EXPECT_EQ_INT(PHOT_PARSE_OK,
+                  phot_parse(&e,
+                             "{\"n\" : null , \"f\" : false , \"t\" : true , \"i\" : 123 , \"s\" : \"abc\", \"a\" : [ "
+                             "1, 2, 3 ], \"o\" : { \"1\" : 1, \"2\" : 2, \"3\" : 3 } }"));
+    EXPECT_EQ_INT(PHOT_OBJ, phot_get_type(&e));
+    EXPECT_EQ_SIZE_T(7, phot_get_obj_size(&e));
+    EXPECT_EQ_STR("n", phot_get_obj_key(&e, 0), phot_get_obj_key_len(&e, 0));
+    EXPECT_EQ_INT(PHOT_NULL, phot_get_type(phot_get_obj_value(&e, 0)));
+    EXPECT_EQ_STR("f", phot_get_obj_key(&e, 1), phot_get_obj_key_len(&e, 1));
+    EXPECT_EQ_BOOL(false, phot_get_bool(phot_get_obj_value(&e, 1)));
+    EXPECT_EQ_STR("t", phot_get_obj_key(&e, 2), phot_get_obj_key_len(&e, 2));
+    EXPECT_EQ_BOOL(true, phot_get_bool(phot_get_obj_value(&e, 2)));
+    EXPECT_EQ_STR("i", phot_get_obj_key(&e, 3), phot_get_obj_key_len(&e, 3));
+    EXPECT_EQ_DOUBLE(123.0, phot_get_num(phot_get_obj_value(&e, 3)));
+    EXPECT_EQ_STR("s", phot_get_obj_key(&e, 4), phot_get_obj_key_len(&e, 4));
+    EXPECT_EQ_STR("abc", phot_get_str(phot_get_obj_value(&e, 4)), phot_get_str_len(phot_get_obj_value(&e, 4)));
+    EXPECT_EQ_STR("a", phot_get_obj_key(&e, 5), phot_get_obj_key_len(&e, 5));
+    EXPECT_EQ_INT(PHOT_ARR, phot_get_type(phot_get_obj_value(&e, 5)));
+    EXPECT_EQ_SIZE_T(3, phot_get_arr_size(phot_get_obj_value(&e, 5)));
+    for (size_t i = 0; i < 3; i++) {
+        phot_elem *ae = phot_get_arr_elem(phot_get_obj_value(&e, 5), i);
+        EXPECT_EQ_INT(PHOT_NUM, phot_get_type(ae));
+        EXPECT_EQ_DOUBLE(i + 1.0, phot_get_num(ae));
+    }
+    EXPECT_EQ_STR("o", phot_get_obj_key(&e, 6), phot_get_obj_key_len(&e, 6));
+    {
+        phot_elem *ov1 = phot_get_obj_value(&e, 6);
+        EXPECT_EQ_INT(PHOT_OBJ, phot_get_type(ov1));
+        for (size_t i = 0; i < 3; i++) {
+            phot_elem *ov2 = phot_get_obj_value(ov1, i);
+            EXPECT_EQ_BOOL(true, (char)('1' + i) == phot_get_obj_key(ov1, i)[0]);
+            EXPECT_EQ_SIZE_T(1, phot_get_obj_key_len(ov1, i));
+            EXPECT_EQ_INT(PHOT_NUM, phot_get_type(ov2));
+            EXPECT_EQ_DOUBLE(i + 1.0, phot_get_num(ov2));
         }
     }
     phot_free(&e);
@@ -267,6 +318,32 @@ static void test_parse_miss_comma_or_square_bracket(void)
     TEST_ERROR(PHOT_PARSE_MISS_COMMA_OR_SQUARE_BRACKET, "[[]");
 }
 
+static void test_parse_miss_key(void)
+{
+    TEST_ERROR(PHOT_PARSE_MISS_KEY, "{:1,");
+    TEST_ERROR(PHOT_PARSE_MISS_KEY, "{1:1,");
+    TEST_ERROR(PHOT_PARSE_MISS_KEY, "{true:1,");
+    TEST_ERROR(PHOT_PARSE_MISS_KEY, "{false:1,");
+    TEST_ERROR(PHOT_PARSE_MISS_KEY, "{null:1,");
+    TEST_ERROR(PHOT_PARSE_MISS_KEY, "{[]:1,");
+    TEST_ERROR(PHOT_PARSE_MISS_KEY, "{{}:1,");
+    TEST_ERROR(PHOT_PARSE_MISS_KEY, "{\"a\":1,");
+}
+
+static void test_parse_miss_colon(void)
+{
+    TEST_ERROR(PHOT_PARSE_MISS_COLON, "{\"a\"}");
+    TEST_ERROR(PHOT_PARSE_MISS_COLON, "{\"a\",\"b\"}");
+}
+
+static void test_parse_miss_comma_or_curly_bracket(void)
+{
+    TEST_ERROR(PHOT_PARSE_MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":1");
+    TEST_ERROR(PHOT_PARSE_MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":1]");
+    TEST_ERROR(PHOT_PARSE_MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":1 \"b\"");
+    TEST_ERROR(PHOT_PARSE_MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":{}");
+}
+
 static void test_parse(void)
 {
     test_parse_null();
@@ -274,6 +351,8 @@ static void test_parse(void)
     test_parse_num();
     test_parse_str();
     test_parse_arr();
+    test_parse_obj();
+
     test_parse_expect_value();
     test_parse_invalid_value();
     test_parse_root_not_singular();
@@ -284,6 +363,9 @@ static void test_parse(void)
     test_parse_invalid_unicode_hex();
     test_parse_invalid_unicode_surrogate();
     test_parse_miss_comma_or_square_bracket();
+    test_parse_miss_key();
+    test_parse_miss_colon();
+    test_parse_miss_comma_or_curly_bracket();
 }
 
 static void test_access_null(void)

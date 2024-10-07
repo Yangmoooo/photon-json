@@ -47,7 +47,7 @@ static void *phot_context_push(phot_context *c, size_t size)
         c->stack = (char *)realloc(c->stack, c->size);
         assert(c->stack != NULL);
     }
-    void *ret = (void *)((uintptr_t)c->stack + c->top);
+    void *ret = c->stack + c->top;
     c->top += size;
     return ret;
 }
@@ -56,7 +56,7 @@ static inline void *phot_context_pop(phot_context *c, size_t size)
 {
     assert(c->top >= size);
     c->top -= size;
-    return (void *)((uintptr_t)c->stack + c->top);
+    return c->stack + c->top;
 }
 
 static inline void phot_push_ch(phot_context *c, char ch) { *(char *)phot_context_push(c, sizeof(char)) = ch; }
@@ -176,7 +176,7 @@ static void phot_encode_utf8(phot_context *c, uint32_t u)
         return ret;           \
     } while (0)
 
-static int phot_parse_str(phot_context *c, phot_elem *e)
+static int phot_parse_str_raw(phot_context *c, char **str, size_t *len)
 {
     const size_t initial_top = c->top;
     expect(c, '"');
@@ -187,25 +187,26 @@ static int phot_parse_str(phot_context *c, phot_elem *e)
     while (*p != '"' && *p != '\\' && *p != '\0' && (unsigned char)*p >= 0x20) {
         p++;
     }
-    ptrdiff_t len = p - start;
+    ptrdiff_t prelen = p - start;
     // 若整个字符串都不需要特殊处理
     if (*p == '"') {
-        phot_set_str(e, start, len);
+        *len = prelen;
+        *str = (char *)start;
         c->json = p + 1;
         return PHOT_PARSE_OK;
     }
     // 若存在需要特殊处理的字符
-    if (len > 0) {
+    if (prelen > 0) {
         // 将无需处理的部分先保存到栈里
-        memcpy(phot_context_push(c, len), start, len);
+        memcpy(phot_context_push(c, prelen), start, prelen);
     }
     while (1) {
         uint32_t u;
         char ch = *p++;
         switch (ch) {
             case '"':
-                len = c->top - initial_top;
-                phot_set_str(e, (const char *)phot_context_pop(c, len), len);
+                *len = c->top - initial_top;
+                *str = (char *)phot_context_pop(c, *len);
                 c->json = p;
                 return PHOT_PARSE_OK;
             case '\\':
@@ -268,21 +269,32 @@ static int phot_parse_str(phot_context *c, phot_elem *e)
     }
 }
 
+static int phot_parse_str(phot_context *c, phot_elem *e)
+{
+    char *str;
+    size_t len;
+    int ret = phot_parse_str_raw(c, &str, &len);
+    if (ret == PHOT_PARSE_OK) {
+        phot_set_str(e, str, len);
+    }
+    return ret;
+}
+
 static int phot_parse_value(phot_context *c, phot_elem *e);
 
 static int phot_parse_arr(phot_context *c, phot_elem *e)
 {
-    size_t size = 0;
-    int ret;
     expect(c, '[');
     phot_parse_whitespace(c);
     if (*c->json == ']') {
         c->json++;
         e->type = PHOT_ARR;
-        e->a_len = 0;
+        e->alen = 0;
         e->arr = NULL;
         return PHOT_PARSE_OK;
     }
+    int ret;
+    size_t len = 0;
     while (1) {
         phot_elem elem;
         phot_init(&elem);
@@ -290,7 +302,7 @@ static int phot_parse_arr(phot_context *c, phot_elem *e)
             break;
         }
         memcpy(phot_context_push(c, sizeof(phot_elem)), &elem, sizeof(phot_elem));
-        size++;
+        len++;
         phot_parse_whitespace(c);
         if (*c->json == ',') {
             c->json++;
@@ -298,8 +310,8 @@ static int phot_parse_arr(phot_context *c, phot_elem *e)
         } else if (*c->json == ']') {
             c->json++;
             e->type = PHOT_ARR;
-            e->a_len = size;
-            size *= sizeof(phot_elem);
+            e->alen = len;
+            size_t size = len * sizeof(phot_elem);
             memcpy(e->arr = (phot_elem *)malloc(size), phot_context_pop(c, size), size);
             return PHOT_PARSE_OK;
         } else {
@@ -308,12 +320,82 @@ static int phot_parse_arr(phot_context *c, phot_elem *e)
         }
     }
     // 清理 context 上的临时栈
-    for (size_t i = 0; i < size; i++) {
+    for (size_t i = 0; i < len; i++) {
         phot_free((phot_elem *)phot_context_pop(c, sizeof(phot_elem)));
     }
     return ret;
 }
 
+static int phot_parse_obj(phot_context *c, phot_elem *e)
+{
+    expect(c, '{');
+    phot_parse_whitespace(c);
+    if (*c->json == '}') {
+        c->json++;
+        e->type = PHOT_OBJ;
+        e->olen = 0;
+        e->obj = NULL;
+        return PHOT_PARSE_OK;
+    }
+    int ret;
+    size_t len = 0;
+    phot_member m;
+    m.key = NULL;
+    while (1) {
+        char *str;
+        phot_init(&m.value);
+        // 解析成员键
+        if (*c->json != '"') {
+            ret = PHOT_PARSE_MISS_KEY;
+            break;
+        }
+        if ((ret = phot_parse_str_raw(c, &str, &m.klen)) != PHOT_PARSE_OK) {
+            break;
+        }
+        memcpy(m.key = (char *)malloc(m.klen + 1), str, m.klen);
+        m.key[m.klen] = '\0';
+        // 解析冒号及前后空白
+        phot_parse_whitespace(c);
+        if (*c->json != ':') {
+            ret = PHOT_PARSE_MISS_COLON;
+            break;
+        }
+        c->json++;
+        phot_parse_whitespace(c);
+        // 解析成员值
+        if ((ret = phot_parse_value(c, &m.value)) != PHOT_PARSE_OK) {
+            break;
+        }
+        memcpy(phot_context_push(c, sizeof(phot_member)), &m, sizeof(phot_member));
+        len++;
+        m.key = NULL;  // 此时 m.key 的所有权已经转移到 context 栈上
+        // 解析下一个成员或结束
+        phot_parse_whitespace(c);
+        if (*c->json == ',') {
+            c->json++;
+            phot_parse_whitespace(c);
+        } else if (*c->json == '}') {
+            c->json++;
+            e->type = PHOT_OBJ;
+            e->olen = len;
+            size_t size = len * sizeof(phot_member);
+            memcpy(e->obj = (phot_member *)malloc(size), phot_context_pop(c, size), size);
+            return PHOT_PARSE_OK;
+        } else {
+            ret = PHOT_PARSE_MISS_COMMA_OR_CURLY_BRACKET;
+            break;
+        }
+    }
+    // 将 context 里的成员出栈并释放
+    free(m.key);
+    for (size_t i = 0; i < len; i++) {
+        phot_member *member = (phot_member *)phot_context_pop(c, sizeof(phot_member));
+        free(member->key);
+        phot_free(&member->value);
+    }
+    e->type = PHOT_NULL;
+    return ret;
+}
 
 static int phot_parse_value(phot_context *c, phot_elem *e)
 {
@@ -334,6 +416,8 @@ static int phot_parse_value(phot_context *c, phot_elem *e)
             return phot_parse_num(c, e);
         case '[':
             return phot_parse_arr(c, e);
+        case '{':
+            return phot_parse_obj(c, e);
         case 't':
         case 'f':
             return phot_parse_bool(c, e);
@@ -348,9 +432,9 @@ static int phot_parse_value(phot_context *c, phot_elem *e)
 
 int phot_parse(phot_elem *e, const char *json)
 {
-    phot_context c;
-    int ret;
     assert(e != NULL);
+    int ret;
+    phot_context c;
     c.json = json;
     c.stack = NULL;
     c.size = c.top = 0;
@@ -376,10 +460,17 @@ void phot_free(phot_elem *e)
             free(e->str);
             break;
         case PHOT_ARR:
-            for (size_t i = 0; i < e->a_len; i++) {
+            for (size_t i = 0; i < e->alen; i++) {
                 phot_free(&e->arr[i]);
             }
             free(e->arr);
+            break;
+        case PHOT_OBJ:
+            for (size_t i = 0; i < e->olen; i++) {
+                free(e->obj[i].key);
+                phot_free(&e->obj[i].value);
+            }
+            free(e->obj);
             break;
         default:
             break;
@@ -392,7 +483,6 @@ phot_type phot_get_type(const phot_elem *e)
     assert(e != NULL);
     return e->type;
 }
-
 
 void phot_set_bool(phot_elem *e, bool boolean)
 {
@@ -429,7 +519,7 @@ void phot_set_str(phot_elem *e, const char *str, size_t len)
     assert(e->str != NULL);
     memcpy(e->str, str, len);
     e->str[len] = '\0';
-    e->s_len = len;
+    e->slen = len;
     e->type = PHOT_STR;
 }
 
@@ -442,18 +532,45 @@ const char *phot_get_str(const phot_elem *e)
 size_t phot_get_str_len(const phot_elem *e)
 {
     assert(e != NULL && e->type == PHOT_STR);
-    return e->s_len;
+    return e->slen;
 }
 
 phot_elem *phot_get_arr_elem(const phot_elem *e, size_t index)
 {
     assert(e != NULL && e->type == PHOT_ARR);
-    assert(index < e->a_len);
+    assert(index < e->alen);
     return &e->arr[index];
 }
 
 size_t phot_get_arr_size(const phot_elem *e)
 {
     assert(e != NULL && e->type == PHOT_ARR);
-    return e->a_len;
+    return e->alen;
+}
+
+const char *phot_get_obj_key(const phot_elem *e, size_t index)
+{
+    assert(e != NULL && e->type == PHOT_OBJ);
+    assert(index < e->olen);
+    return e->obj[index].key;
+}
+
+size_t phot_get_obj_key_len(const phot_elem *e, size_t index)
+{
+    assert(e != NULL && e->type == PHOT_OBJ);
+    assert(index < e->olen);
+    return e->obj[index].klen;
+}
+
+phot_elem *phot_get_obj_value(const phot_elem *e, size_t index)
+{
+    assert(e != NULL && e->type == PHOT_OBJ);
+    assert(index < e->olen);
+    return &e->obj[index].value;
+}
+
+size_t phot_get_obj_size(const phot_elem *e)
+{
+    assert(e != NULL && e->type == PHOT_OBJ);
+    return e->olen;
 }
