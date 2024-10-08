@@ -1,7 +1,9 @@
 #include <assert.h>
 #include <errno.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -9,6 +11,10 @@
 
 #ifndef PHOT_PARSE_STACK_INIT_SIZE
 #define PHOT_PARSE_STACK_INIT_SIZE 256
+#endif
+
+#ifndef PHOT_PARSE_STRINGIFY_INIT_SIZE
+#define PHOT_PARSE_STRINGIFY_INIT_SIZE 256
 #endif
 
 // 留着优化用
@@ -37,7 +43,7 @@ static inline bool is_digit_1to9(char ch) { return ch >= '1' && ch <= '9'; }
 static void *phot_context_push(phot_context *c, size_t size)
 {
     assert(size > 0);
-    if (c->top + size > c->size) {
+    if (c->top + size >= c->size) {
         if (c->size == 0) {
             c->size = PHOT_PARSE_STACK_INIT_SIZE;
         }
@@ -60,6 +66,11 @@ static inline void *phot_context_pop(phot_context *c, size_t size)
 }
 
 static inline void phot_push_ch(phot_context *c, char ch) { *(char *)phot_context_push(c, sizeof(char)) = ch; }
+
+static inline void phot_push_str(phot_context *c, const char *str, size_t len)
+{
+    memcpy(phot_context_push(c, len), str, len);
+}
 
 static void phot_parse_whitespace(phot_context *c)
 {
@@ -450,6 +461,122 @@ int phot_parse(phot_elem *e, const char *json)
     assert(c.top == 0);
     free(c.stack);
     return ret;
+}
+
+static void phot_stringify_str(phot_context *c, const char *str, size_t len)
+{
+    static const char hex_digits[] = {
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
+    };
+    assert(str != NULL);
+    size_t size = len * 6 + 2;  // 每个字符最多占 6 个字符和 2 个引号
+    char *head = phot_context_push(c, size);
+    char *p = head;
+    *p++ = '"';
+    for (size_t i = 0; i < len; i++) {
+        unsigned char ch = (unsigned char)str[i];
+        switch (ch) {
+            case '\"':
+                *p++ = '\\';
+                *p++ = '\"';
+                break;
+            case '\\':
+                *p++ = '\\';
+                *p++ = '\\';
+                break;
+            case '\b':
+                *p++ = '\\';
+                *p++ = 'b';
+                break;
+            case '\f':
+                *p++ = '\\';
+                *p++ = 'f';
+                break;
+            case '\n':
+                *p++ = '\\';
+                *p++ = 'n';
+                break;
+            case '\r':
+                *p++ = '\\';
+                *p++ = 'r';
+                break;
+            case '\t':
+                *p++ = '\\';
+                *p++ = 't';
+                break;
+            default:
+                if (ch < 0x20) {
+                    *p++ = '\\';
+                    *p++ = 'u';
+                    *p++ = '0';
+                    *p++ = '0';
+                    *p++ = hex_digits[ch >> 4];
+                    *p++ = hex_digits[ch & 0xF];
+                } else {
+                    *p++ = ch;
+                }
+        }
+    }
+    *p++ = '"';
+    c->top -= size - (p - head);
+}
+
+static void phot_stringify_value(phot_context *c, const phot_elem *e)
+{
+    switch (e->type) {
+        case PHOT_NULL:
+            phot_push_str(c, "null", 4);
+            break;
+        case PHOT_BOOL:
+            phot_push_str(c, e->boolean ? "true" : "false", e->boolean ? 4 : 5);
+            break;
+        case PHOT_NUM:
+            // 将数字转换为字符串放入栈中，sprintf 返回的是写入的字符数
+            c->top -= 32 - sprintf(phot_context_push(c, 32), "%.17g", e->num);
+            break;
+        case PHOT_STR:
+            phot_stringify_str(c, e->str, e->slen);
+            break;
+        case PHOT_ARR:
+            phot_push_ch(c, '[');
+            for (size_t i = 0; i < e->alen; i++) {
+                if (i > 0) {
+                    phot_push_ch(c, ',');
+                }
+                phot_stringify_value(c, &e->arr[i]);
+            }
+            phot_push_ch(c, ']');
+            break;
+        case PHOT_OBJ:
+            phot_push_ch(c, '{');
+            for (size_t i = 0; i < e->olen; i++) {
+                if (i > 0) {
+                    phot_push_ch(c, ',');
+                }
+                phot_stringify_str(c, e->obj[i].key, e->obj[i].klen);
+                phot_push_ch(c, ':');
+                phot_stringify_value(c, &e->obj[i].value);
+            }
+            phot_push_ch(c, '}');
+            break;
+        default:
+            assert(0 && "invalid type");
+    }
+}
+
+char *phot_stringify(const phot_elem *e, size_t *len)
+{
+    assert(e != NULL);
+    phot_context c;
+    c.size = PHOT_PARSE_STRINGIFY_INIT_SIZE;
+    c.stack = (char *)malloc(c.size);
+    c.top = 0;
+    phot_stringify_value(&c, e);
+    if (len != NULL) {
+        *len = c.top;
+    }
+    phot_push_ch(&c, '\0');
+    return c.stack;
 }
 
 void phot_free(phot_elem *e)

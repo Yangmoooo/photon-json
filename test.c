@@ -1,7 +1,7 @@
+#include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <vcruntime.h>
 
 #include "photjson.h"
 
@@ -368,6 +368,73 @@ static void test_parse(void)
     test_parse_miss_comma_or_curly_bracket();
 }
 
+#define TEST_ROUNDTRIP(json)                                \
+    do {                                                    \
+        phot_elem e;                                        \
+        phot_init(&e);                                      \
+        EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e, json)); \
+        size_t len;                                         \
+        char *json2 = phot_stringify(&e, &len);             \
+        EXPECT_EQ_STR(json, json2, len);                    \
+        phot_free(&e);                                      \
+        free(json2);                                        \
+    } while (0)
+
+static void test_stringify_num(void)
+{
+    TEST_ROUNDTRIP("0");
+    TEST_ROUNDTRIP("-0");
+    TEST_ROUNDTRIP("1");
+    TEST_ROUNDTRIP("-1");
+    TEST_ROUNDTRIP("1.5");
+    TEST_ROUNDTRIP("-1.5");
+    TEST_ROUNDTRIP("3.25");
+    TEST_ROUNDTRIP("1.234e+20");
+    TEST_ROUNDTRIP("1.234e-20");
+    TEST_ROUNDTRIP("1.0000000000000002");       // 大于 1 的最小精度
+    TEST_ROUNDTRIP("4.9406564584124654e-324");  // 最小次正规数
+    TEST_ROUNDTRIP("-4.9406564584124654e-324");
+    TEST_ROUNDTRIP("2.2250738585072009e-308");  // 最大次正规数
+    TEST_ROUNDTRIP("-2.2250738585072009e-308");
+    TEST_ROUNDTRIP("2.2250738585072014e-308");  // 最小正规数
+    TEST_ROUNDTRIP("-2.2250738585072014e-308");
+    TEST_ROUNDTRIP("1.7976931348623157e+308");  // 最大正规数
+    TEST_ROUNDTRIP("-1.7976931348623157e+308");
+}
+
+static void test_stringify_str(void)
+{
+    TEST_ROUNDTRIP("\"\"");
+    TEST_ROUNDTRIP("\"Hello\"");
+    TEST_ROUNDTRIP("\"Hello\\nWorld\"");
+    TEST_ROUNDTRIP("\"\\\" \\\\ / \\b \\f \\n \\r \\t\"");
+    TEST_ROUNDTRIP("\"Hello\\u0000World\"");
+}
+
+static void test_stringify_arr(void)
+{
+    TEST_ROUNDTRIP("[]");
+    TEST_ROUNDTRIP("[null,false,true,123,\"abc\",[1,2,3]]");
+}
+
+static void test_stringify_obj(void)
+{
+    TEST_ROUNDTRIP("{}");
+    TEST_ROUNDTRIP(
+        "{\"n\":null,\"f\":false,\"t\":true,\"i\":123,\"s\":\"abc\",\"a\":[1,2,3],\"o\":{\"1\":1,\"2\":2,\"3\":3}}");
+}
+
+static void test_stringify(void)
+{
+    TEST_ROUNDTRIP("null");
+    TEST_ROUNDTRIP("false");
+    TEST_ROUNDTRIP("true");
+    test_stringify_num();
+    test_stringify_str();
+    test_stringify_arr();
+    test_stringify_obj();
+}
+
 static void test_access_null(void)
 {
     phot_elem e;
@@ -422,6 +489,7 @@ static void test_access(void)
 int main(void)
 {
     test_parse();
+    test_stringify();
     test_access();
     printf("%d/%d (%3.2f%%) passed\n", test_pass, test_count, test_pass * 100.0 / test_count);
     return main_ret;

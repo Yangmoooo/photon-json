@@ -1,10 +1,7 @@
 #ifndef PHOTJSON_H_
 #define PHOTJSON_H_
 
-#include <assert.h>
-#include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 
 
 typedef enum { PHOT_NULL, PHOT_BOOL, PHOT_NUM, PHOT_STR, PHOT_ARR, PHOT_OBJ } phot_type;
@@ -16,16 +13,16 @@ struct phot_elem {
         bool boolean;
         double num;
         struct {
-            char *str; // 字符串
-            size_t slen; // 长度
+            char *str;    // 字符串
+            size_t slen;  // 长度
         };
         struct {
-            phot_elem *arr; // 数组
-            size_t alen; // 元素个数
+            phot_elem *arr;  // 数组
+            size_t alen;     // 元素个数
         };  // 数组里保存的叫元素
         struct {
-            phot_member *obj; // 对象
-            size_t olen; // 成员个数
+            phot_member *obj;  // 对象
+            size_t olen;       // 成员个数
         };  // 对象里保存的叫成员
     };
     phot_type type;
@@ -35,7 +32,7 @@ struct phot_member {
     char *key;
     phot_elem value;
     size_t klen;
-}; // 成员本身是键值对
+};  // 成员本身是键值对
 
 // enum 会自动声明为连续的常量，故在 C 中常用这种方式来声明一组常量
 enum {
@@ -57,6 +54,8 @@ enum {
 
 
 int phot_parse(phot_elem *e, const char *json);
+char *phot_stringify(const phot_elem *e, size_t *length);
+
 void phot_free(phot_elem *e);
 phot_type phot_get_type(const phot_elem *e);
 
