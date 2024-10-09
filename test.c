@@ -27,6 +27,7 @@ static int test_pass = 0;
 #define EXPECT_EQ_STR(expect, actual, alength) \
     EXPECT_EQ_BASE(sizeof(expect) - 1 == alength && memcmp(expect, actual, alength) == 0, expect, actual, "%s")
 #define EXPECT_EQ_SIZE_T(expect, actual) EXPECT_EQ_BASE((expect) == (actual), (size_t)expect, (size_t)actual, "%zu")
+#define EXPECT_TRUE(actual) EXPECT_EQ_BASE((actual) != 0, "true", "false", "%s")
 
 
 // 正确解析
@@ -130,13 +131,13 @@ static void test_parse_arr(void)
     phot_init(&e);
     EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e, "[ ]"));
     EXPECT_EQ_INT(PHOT_ARR, phot_get_type(&e));
-    EXPECT_EQ_SIZE_T(0, phot_get_arr_size(&e));
+    EXPECT_EQ_SIZE_T(0, phot_get_arr_len(&e));
     phot_free(&e);
 
     phot_init(&e);
     EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e, "[ null , false , true , 123 , \"abc\" ]"));
     EXPECT_EQ_INT(PHOT_ARR, phot_get_type(&e));
-    EXPECT_EQ_SIZE_T(5, phot_get_arr_size(&e));
+    EXPECT_EQ_SIZE_T(5, phot_get_arr_len(&e));
     EXPECT_EQ_INT(PHOT_NULL, phot_get_type(phot_get_arr_elem(&e, 0)));
     EXPECT_EQ_INT(PHOT_BOOL, phot_get_type(phot_get_arr_elem(&e, 1)));
     EXPECT_EQ_INT(PHOT_BOOL, phot_get_type(phot_get_arr_elem(&e, 2)));
@@ -151,11 +152,11 @@ static void test_parse_arr(void)
     phot_init(&e);
     EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e, "[ [ ] , [ 0 ] , [ 0 , 1 ] , [ 0 , 1 , 2 ] ]"));
     EXPECT_EQ_INT(PHOT_ARR, phot_get_type(&e));
-    EXPECT_EQ_SIZE_T(4, phot_get_arr_size(&e));
+    EXPECT_EQ_SIZE_T(4, phot_get_arr_len(&e));
     for (size_t i = 0; i < 4; i++) {
         phot_elem *ae1 = phot_get_arr_elem(&e, i);
         EXPECT_EQ_INT(PHOT_ARR, phot_get_type(ae1));
-        EXPECT_EQ_SIZE_T(i, phot_get_arr_size(ae1));
+        EXPECT_EQ_SIZE_T(i, phot_get_arr_len(ae1));
         for (size_t j = 0; j < i; j++) {
             phot_elem *ae2 = phot_get_arr_elem(ae1, j);
             EXPECT_EQ_INT(PHOT_NUM, phot_get_type(ae2));
@@ -172,7 +173,7 @@ static void test_parse_obj(void)
     phot_init(&e);
     EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e, "{ }"));
     EXPECT_EQ_INT(PHOT_OBJ, phot_get_type(&e));
-    EXPECT_EQ_SIZE_T(0, phot_get_obj_size(&e));
+    EXPECT_EQ_SIZE_T(0, phot_get_obj_len(&e));
     phot_free(&e);
 
     phot_init(&e);
@@ -181,7 +182,7 @@ static void test_parse_obj(void)
                              "{\"n\" : null , \"f\" : false , \"t\" : true , \"i\" : 123 , \"s\" : \"abc\", \"a\" : [ "
                              "1, 2, 3 ], \"o\" : { \"1\" : 1, \"2\" : 2, \"3\" : 3 } }"));
     EXPECT_EQ_INT(PHOT_OBJ, phot_get_type(&e));
-    EXPECT_EQ_SIZE_T(7, phot_get_obj_size(&e));
+    EXPECT_EQ_SIZE_T(7, phot_get_obj_len(&e));
     EXPECT_EQ_STR("n", phot_get_obj_key(&e, 0), phot_get_obj_key_len(&e, 0));
     EXPECT_EQ_INT(PHOT_NULL, phot_get_type(phot_get_obj_value(&e, 0)));
     EXPECT_EQ_STR("f", phot_get_obj_key(&e, 1), phot_get_obj_key_len(&e, 1));
@@ -194,7 +195,7 @@ static void test_parse_obj(void)
     EXPECT_EQ_STR("abc", phot_get_str(phot_get_obj_value(&e, 4)), phot_get_str_len(phot_get_obj_value(&e, 4)));
     EXPECT_EQ_STR("a", phot_get_obj_key(&e, 5), phot_get_obj_key_len(&e, 5));
     EXPECT_EQ_INT(PHOT_ARR, phot_get_type(phot_get_obj_value(&e, 5)));
-    EXPECT_EQ_SIZE_T(3, phot_get_arr_size(phot_get_obj_value(&e, 5)));
+    EXPECT_EQ_SIZE_T(3, phot_get_arr_len(phot_get_obj_value(&e, 5)));
     for (size_t i = 0; i < 3; i++) {
         phot_elem *ae = phot_get_arr_elem(phot_get_obj_value(&e, 5), i);
         EXPECT_EQ_INT(PHOT_NUM, phot_get_type(ae));
@@ -435,6 +436,86 @@ static void test_stringify(void)
     test_stringify_obj();
 }
 
+#define TEST_EQUAL(json1, json2, equality)                    \
+    do {                                                      \
+        phot_elem e1, e2;                                     \
+        phot_init(&e1);                                       \
+        phot_init(&e2);                                       \
+        EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e1, json1)); \
+        EXPECT_EQ_INT(PHOT_PARSE_OK, phot_parse(&e2, json2)); \
+        EXPECT_EQ_INT(equality, phot_is_equal(&e1, &e2));     \
+        phot_free(&e1);                                       \
+        phot_free(&e2);                                       \
+    } while (0)
+
+static void test_equal(void)
+{
+    TEST_EQUAL("null", "null", true);
+    TEST_EQUAL("null", "0", false);
+    TEST_EQUAL("true", "true", true);
+    TEST_EQUAL("true", "false", false);
+    TEST_EQUAL("false", "false", true);
+    TEST_EQUAL("123", "123", true);
+    TEST_EQUAL("123", "456", false);
+    TEST_EQUAL("\"abc\"", "\"abc\"", true);
+    TEST_EQUAL("\"abc\"", "\"abcd\"", false);
+    TEST_EQUAL("[]", "[]", true);
+    TEST_EQUAL("[]", "null", false);
+    TEST_EQUAL("[1,2,3]", "[1,2,3]", true);
+    TEST_EQUAL("[1,2,3]", "[1,2,3,4]", false);
+    TEST_EQUAL("[[]]", "[[]]", true);
+    TEST_EQUAL("{}", "{}", true);
+    TEST_EQUAL("{}", "null", false);
+    TEST_EQUAL("{\"a\":1,\"b\":2}", "{\"a\":1,\"b\":2}", true);
+    TEST_EQUAL("{\"a\":1,\"b\":2}", "{\"b\":2,\"a\":1}", true);
+    TEST_EQUAL("{\"a\":1,\"b\":2}", "{\"a\":1,\"b\":3}", false);
+    TEST_EQUAL("{\"a\":1,\"b\":2}", "{\"a\":1,\"b\":2,\"c\":3}", false);
+    TEST_EQUAL("{\"a\":{\"b\":{\"c\":{}}}}", "{\"a\":{\"b\":{\"c\":{}}}}", true);
+    TEST_EQUAL("{\"a\":{\"b\":{\"c\":{}}}}", "{\"a\":{\"b\":{\"c\":[]}}}", false);
+}
+
+static void test_copy(void)
+{
+    phot_elem e1, e2;
+    phot_init(&e1);
+    phot_parse(&e1, "{\"t\":true,\"f\":false,\"n\":null,\"d\":1.5,\"a\":[1,2,3]}");
+    phot_init(&e2);
+    phot_copy(&e2, &e1);
+    EXPECT_TRUE(phot_is_equal(&e2, &e1));
+    phot_free(&e1);
+    phot_free(&e2);
+}
+
+static void test_move(void)
+{
+    phot_elem e1, e2, e3;
+    phot_init(&e1);
+    phot_init(&e2);
+    phot_init(&e3);
+    phot_parse(&e1, "{\"t\":true,\"f\":false,\"n\":null,\"d\":1.5,\"a\":[1,2,3]}");
+    phot_copy(&e2, &e1);
+    phot_move(&e3, &e2);
+    EXPECT_EQ_INT(PHOT_NULL, phot_get_type(&e2));
+    EXPECT_TRUE(phot_is_equal(&e3, &e1));
+    phot_free(&e1);
+    phot_free(&e2);
+    phot_free(&e3);
+}
+
+static void test_swap(void)
+{
+    phot_elem e1, e2;
+    phot_init(&e1);
+    phot_init(&e2);
+    phot_set_str(&e1, "Hello", 5);
+    phot_set_str(&e2, "World!", 6);
+    phot_swap(&e1, &e2);
+    EXPECT_EQ_STR("World!", phot_get_str(&e1), phot_get_str_len(&e1));
+    EXPECT_EQ_STR("Hello", phot_get_str(&e2), phot_get_str_len(&e2));
+    phot_free(&e1);
+    phot_free(&e2);
+}
+
 static void test_access_null(void)
 {
     phot_elem e;
@@ -478,18 +559,164 @@ static void test_access_str(void)
     phot_free(&e);
 }
 
+static void test_access_arr(void)
+{
+    phot_elem a, e;
+    size_t i, j;
+
+    phot_init(&a);
+
+    for (j = 0; j <= 5; j += 5) {
+        phot_set_arr(&a, j);
+        EXPECT_EQ_SIZE_T(0, phot_get_arr_len(&a));
+        EXPECT_EQ_SIZE_T(j, phot_get_arr_cap(&a));
+        for (i = 0; i < 10; i++) {
+            phot_init(&e);
+            phot_set_num(&e, i);
+            phot_move(phot_push_arr(&a), &e);
+            phot_free(&e);
+        }
+
+        EXPECT_EQ_SIZE_T(10, phot_get_arr_len(&a));
+        for (i = 0; i < 10; i++) EXPECT_EQ_DOUBLE((double)i, phot_get_num(phot_get_arr_elem(&a, i)));
+    }
+
+    phot_pop_arr(&a);
+    EXPECT_EQ_SIZE_T(9, phot_get_arr_len(&a));
+    for (i = 0; i < 9; i++) EXPECT_EQ_DOUBLE((double)i, phot_get_num(phot_get_arr_elem(&a, i)));
+
+    phot_erase_arr(&a, 4, 0);
+    EXPECT_EQ_SIZE_T(9, phot_get_arr_len(&a));
+    for (i = 0; i < 9; i++) EXPECT_EQ_DOUBLE((double)i, phot_get_num(phot_get_arr_elem(&a, i)));
+
+    phot_erase_arr(&a, 8, 1);
+    EXPECT_EQ_SIZE_T(8, phot_get_arr_len(&a));
+    for (i = 0; i < 8; i++) EXPECT_EQ_DOUBLE((double)i, phot_get_num(phot_get_arr_elem(&a, i)));
+
+    phot_erase_arr(&a, 0, 2);
+    EXPECT_EQ_SIZE_T(6, phot_get_arr_len(&a));
+    for (i = 0; i < 6; i++) EXPECT_EQ_DOUBLE((double)i + 2, phot_get_num(phot_get_arr_elem(&a, i)));
+
+    for (i = 0; i < 2; i++) {
+        phot_init(&e);
+        phot_set_num(&e, i);
+        phot_move(phot_insert_arr(&a, i), &e);
+        phot_free(&e);
+    }
+
+    EXPECT_EQ_SIZE_T(8, phot_get_arr_len(&a));
+    for (i = 0; i < 8; i++) EXPECT_EQ_DOUBLE((double)i, phot_get_num(phot_get_arr_elem(&a, i)));
+
+    EXPECT_TRUE(phot_get_arr_cap(&a) > 8);
+    phot_shrink_arr(&a);
+    EXPECT_EQ_SIZE_T(8, phot_get_arr_cap(&a));
+    EXPECT_EQ_SIZE_T(8, phot_get_arr_len(&a));
+    for (i = 0; i < 8; i++) EXPECT_EQ_DOUBLE((double)i, phot_get_num(phot_get_arr_elem(&a, i)));
+
+    phot_set_str(&e, "Hello", 5);
+    phot_move(phot_push_arr(&a), &e);  // 测试元素是否正确释放
+    phot_free(&e);
+
+    i = phot_get_arr_cap(&a);
+    phot_clear_arr(&a);
+    EXPECT_EQ_SIZE_T(0, phot_get_arr_len(&a));
+    EXPECT_EQ_SIZE_T(i, phot_get_arr_cap(&a));  // 测试是否只清空了 size，而没有缩容
+    phot_shrink_arr(&a);
+    EXPECT_EQ_SIZE_T(0, phot_get_arr_cap(&a));
+
+    phot_free(&a);
+}
+
+static void test_access_obj(void)
+{
+    phot_elem o, v, *pv;
+    size_t i, j, index;
+
+    phot_init(&o);
+
+    for (j = 0; j <= 5; j += 5) {
+        phot_set_obj(&o, j);
+        EXPECT_EQ_SIZE_T(0, phot_get_obj_len(&o));
+        EXPECT_EQ_SIZE_T(j, phot_get_obj_cap(&o));
+        for (i = 0; i < 10; i++) {
+            char key[2] = "a";
+            key[0] += i;
+            phot_init(&v);
+            phot_set_num(&v, i);
+            phot_move(phot_set_obj_value(&o, key, 1), &v);
+            phot_free(&v);
+        }
+        EXPECT_EQ_SIZE_T(10, phot_get_obj_len(&o));
+        for (i = 0; i < 10; i++) {
+            char key[] = "a";
+            key[0] += i;
+            index = phot_find_obj_index(&o, key, 1);
+            EXPECT_TRUE(index != PHOT_KEY_NOT_EXIST);
+            pv = phot_get_obj_value(&o, index);
+            EXPECT_EQ_DOUBLE((double)i, phot_get_num(pv));
+        }
+    }
+
+    index = phot_find_obj_index(&o, "j", 1);
+    EXPECT_TRUE(index != PHOT_KEY_NOT_EXIST);
+    phot_remove_obj_value(&o, index);
+    index = phot_find_obj_index(&o, "j", 1);
+    EXPECT_TRUE(index == PHOT_KEY_NOT_EXIST);
+    EXPECT_EQ_SIZE_T(9, phot_get_obj_len(&o));
+
+    index = phot_find_obj_index(&o, "a", 1);
+    EXPECT_TRUE(index != PHOT_KEY_NOT_EXIST);
+    phot_remove_obj_value(&o, index);
+    index = phot_find_obj_index(&o, "a", 1);
+    EXPECT_TRUE(index == PHOT_KEY_NOT_EXIST);
+    EXPECT_EQ_SIZE_T(8, phot_get_obj_len(&o));
+
+    EXPECT_TRUE(phot_get_obj_cap(&o) > 8);
+    phot_shrink_obj(&o);
+    EXPECT_EQ_SIZE_T(8, phot_get_obj_cap(&o));
+    EXPECT_EQ_SIZE_T(8, phot_get_obj_len(&o));
+    for (i = 0; i < 8; i++) {
+        char key[] = "a";
+        key[0] += i + 1;
+        EXPECT_EQ_DOUBLE((double)i + 1, phot_get_num(phot_get_obj_value(&o, phot_find_obj_index(&o, key, 1))));
+    }
+
+    phot_set_str(&v, "Hello", 5);
+    phot_move(phot_set_obj_value(&o, "World", 5), &v);
+    phot_free(&v);
+
+    pv = phot_find_obj_value(&o, "World", 5);
+    EXPECT_TRUE(pv != NULL);
+    EXPECT_EQ_STR("Hello", phot_get_str(pv), phot_get_str_len(pv));
+
+    i = phot_get_obj_cap(&o);
+    phot_clear_obj(&o);
+    EXPECT_EQ_SIZE_T(0, phot_get_obj_len(&o));
+    EXPECT_EQ_SIZE_T(i, phot_get_obj_cap(&o));
+    phot_shrink_obj(&o);
+    EXPECT_EQ_SIZE_T(0, phot_get_obj_cap(&o));
+
+    phot_free(&o);
+}
+
 static void test_access(void)
 {
     test_access_null();
     test_access_bool();
     test_access_num();
     test_access_str();
+    test_access_arr();
+    test_access_obj();
 }
 
 int main(void)
 {
     test_parse();
     test_stringify();
+    test_equal();
+    test_copy();
+    test_move();
+    test_swap();
     test_access();
     printf("%d/%d (%3.2f%%) passed\n", test_pass, test_count, test_pass * 100.0 / test_count);
     return main_ret;

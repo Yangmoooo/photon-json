@@ -299,9 +299,7 @@ static int phot_parse_arr(phot_context *c, phot_elem *e)
     phot_parse_whitespace(c);
     if (*c->json == ']') {
         c->json++;
-        e->type = PHOT_ARR;
-        e->alen = 0;
-        e->arr = NULL;
+        phot_set_arr(e, 0);
         return PHOT_PARSE_OK;
     }
     int ret;
@@ -320,10 +318,9 @@ static int phot_parse_arr(phot_context *c, phot_elem *e)
             phot_parse_whitespace(c);
         } else if (*c->json == ']') {
             c->json++;
-            e->type = PHOT_ARR;
+            phot_set_arr(e, len);
+            memcpy(e->arr, phot_context_pop(c, len * sizeof(phot_elem)), len * sizeof(phot_elem));
             e->alen = len;
-            size_t size = len * sizeof(phot_elem);
-            memcpy(e->arr = (phot_elem *)malloc(size), phot_context_pop(c, size), size);
             return PHOT_PARSE_OK;
         } else {
             ret = PHOT_PARSE_MISS_COMMA_OR_SQUARE_BRACKET;
@@ -343,9 +340,7 @@ static int phot_parse_obj(phot_context *c, phot_elem *e)
     phot_parse_whitespace(c);
     if (*c->json == '}') {
         c->json++;
-        e->type = PHOT_OBJ;
-        e->olen = 0;
-        e->obj = NULL;
+        phot_set_obj(e, 0);
         return PHOT_PARSE_OK;
     }
     int ret;
@@ -387,10 +382,9 @@ static int phot_parse_obj(phot_context *c, phot_elem *e)
             phot_parse_whitespace(c);
         } else if (*c->json == '}') {
             c->json++;
-            e->type = PHOT_OBJ;
+            phot_set_obj(e, len);
+            memcpy(e->obj, phot_context_pop(c, len * sizeof(phot_member)), len * sizeof(phot_member));
             e->olen = len;
-            size_t size = len * sizeof(phot_member);
-            memcpy(e->obj = (phot_member *)malloc(size), phot_context_pop(c, size), size);
             return PHOT_PARSE_OK;
         } else {
             ret = PHOT_PARSE_MISS_COMMA_OR_CURLY_BRACKET;
@@ -579,6 +573,52 @@ char *phot_stringify(const phot_elem *e, size_t *len)
     return c.stack;
 }
 
+void phot_copy(phot_elem *dst, const phot_elem *src)
+{
+    assert(dst != NULL && src != NULL && dst != src);
+    phot_free(dst);
+    switch (src->type) {
+        case PHOT_STR:
+            phot_set_str(dst, src->str, src->slen);
+            break;
+        case PHOT_ARR:
+            phot_set_arr(dst, src->alen);
+            for (size_t i = 0; i < src->alen; i++) {
+                phot_copy(&dst->arr[i], &src->arr[i]);
+            }
+            dst->alen = src->alen;
+            break;
+        case PHOT_OBJ:
+            phot_set_obj(dst, src->olen);
+            for (size_t i = 0; i < src->olen; i++) {
+                phot_elem *value = phot_set_obj_value(dst, src->obj[i].key, src->obj[i].klen);
+                phot_copy(value, &src->obj[i].value);
+            }
+            break;
+        default:
+            memcpy(dst, src, sizeof(phot_elem));
+    }
+}
+
+void phot_move(phot_elem *dst, phot_elem *src)
+{
+    assert(dst != NULL && src != NULL && dst != src);
+    phot_free(dst);
+    memcpy(dst, src, sizeof(phot_elem));
+    phot_init(src);
+}
+
+void phot_swap(phot_elem *lhs, phot_elem *rhs)
+{
+    assert(lhs != NULL && rhs != NULL);
+    if (lhs != rhs) {
+        phot_elem tmp;
+        memcpy(&tmp, lhs, sizeof(phot_elem));
+        memcpy(lhs, rhs, sizeof(phot_elem));
+        memcpy(rhs, &tmp, sizeof(phot_elem));
+    }
+}
+
 void phot_free(phot_elem *e)
 {
     assert(e != NULL);
@@ -609,6 +649,35 @@ phot_type phot_get_type(const phot_elem *e)
 {
     assert(e != NULL);
     return e->type;
+}
+
+int phot_is_equal(const phot_elem *lhs, const phot_elem *rhs)
+{
+    assert(lhs != NULL && rhs != NULL);
+    if (lhs->type != rhs->type) return 0;
+    switch (lhs->type) {
+        case PHOT_NUM:
+            return lhs->num == rhs->num;
+        case PHOT_STR:
+            return lhs->slen == rhs->slen && memcmp(lhs->str, rhs->str, lhs->slen) == 0;
+        case PHOT_ARR:
+            if (lhs->alen != rhs->alen) return 0;
+            for (size_t i = 0; i < lhs->alen; i++) {
+                if (!phot_is_equal(&lhs->arr[i], &rhs->arr[i])) return 0;
+            }
+            return 1;
+        case PHOT_OBJ:
+            if (lhs->olen != rhs->olen) return 0;
+            for (size_t i = 0; i < lhs->olen; i++) {
+                phot_elem *value = phot_find_obj_value(lhs, rhs->obj[i].key, rhs->obj[i].klen);
+                if (value == NULL || !phot_is_equal(value, &rhs->obj[i].value)) return 0;
+            }
+            return 1;
+        case PHOT_BOOL:
+            return lhs->boolean == rhs->boolean;
+        default:
+            return 1;
+    }
 }
 
 void phot_set_bool(phot_elem *e, bool boolean)
@@ -662,6 +731,52 @@ size_t phot_get_str_len(const phot_elem *e)
     return e->slen;
 }
 
+void phot_set_arr(phot_elem *e, size_t cap)
+{
+    assert(e != NULL);
+    phot_free(e);
+    e->arr = cap > 0 ? (phot_elem *)malloc(cap * sizeof(phot_elem)) : NULL;
+    e->alen = 0;
+    e->acap = cap;
+    e->type = PHOT_ARR;
+}
+
+size_t phot_get_arr_len(const phot_elem *e)
+{
+    assert(e != NULL && e->type == PHOT_ARR);
+    return e->alen;
+}
+
+size_t phot_get_arr_cap(const phot_elem *e)
+{
+    assert(e != NULL && e->type == PHOT_ARR);
+    return e->acap;
+}
+
+void phot_reserve_arr(phot_elem *e, size_t cap)
+{
+    assert(e != NULL && e->type == PHOT_ARR);
+    if (cap > e->acap) {
+        e->arr = (phot_elem *)realloc(e->arr, cap * sizeof(phot_elem));
+        e->acap = cap;
+    }
+}
+
+void phot_shrink_arr(phot_elem *e)
+{
+    assert(e != NULL && e->type == PHOT_ARR);
+    if (e->alen < e->acap) {
+        e->arr = (phot_elem *)realloc(e->arr, e->alen * sizeof(phot_elem));
+        e->acap = e->alen;
+    }
+}
+
+void phot_clear_arr(phot_elem *e)
+{
+    assert(e != NULL && e->type == PHOT_ARR);
+    phot_erase_arr(e, 0, e->alen);
+}
+
 phot_elem *phot_get_arr_elem(const phot_elem *e, size_t index)
 {
     assert(e != NULL && e->type == PHOT_ARR);
@@ -669,10 +784,97 @@ phot_elem *phot_get_arr_elem(const phot_elem *e, size_t index)
     return &e->arr[index];
 }
 
-size_t phot_get_arr_size(const phot_elem *e)
+// 同样是虚假的 push，返回指向新元素的指针，还需手动写入元素和长度
+// 目的是保持灵活性并减少开销，后同
+phot_elem *phot_push_arr(phot_elem *e)
 {
     assert(e != NULL && e->type == PHOT_ARR);
-    return e->alen;
+    if (e->alen == e->acap) {
+        phot_reserve_arr(e, e->acap == 0 ? 1 : e->acap * 2);
+    }
+    phot_init(&e->arr[e->alen]);
+    return &e->arr[e->alen++];
+}
+
+void phot_pop_arr(phot_elem *e)
+{
+    assert(e != NULL && e->type == PHOT_ARR && e->alen > 0);
+    phot_free(&e->arr[--e->alen]);
+}
+
+phot_elem *phot_insert_arr(phot_elem *e, size_t index)
+{
+    assert(e != NULL && e->type == PHOT_ARR && index <= e->alen);
+    if (e->alen == e->acap) {
+        phot_reserve_arr(e, e->acap == 0 ? 1 : e->acap * 2);
+    }
+    memmove(&e->arr[index + 1], &e->arr[index], (e->alen - index) * sizeof(phot_elem));
+    phot_init(&e->arr[index]);
+    e->alen++;
+    return &e->arr[index];
+}
+
+void phot_erase_arr(phot_elem *e, size_t index, size_t count)
+{
+    assert(e != NULL && e->type == PHOT_ARR && index + count <= e->alen);
+    for (size_t i = index; i < index + count; i++) {
+        phot_free(&e->arr[i]);
+    }
+    memmove(&e->arr[index], &e->arr[index + count], (e->alen - index - count) * sizeof(phot_elem));
+    for (size_t i = e->alen - count; i < e->alen; i++) {
+        phot_init(&e->arr[i]);
+    }
+    e->alen -= count;
+}
+
+void phot_set_obj(phot_elem *e, size_t cap)
+{
+    assert(e != NULL);
+    phot_free(e);
+    e->obj = cap > 0 ? (phot_member *)malloc(cap * sizeof(phot_member)) : NULL;
+    e->olen = 0;
+    e->ocap = cap;
+    e->type = PHOT_OBJ;
+}
+
+size_t phot_get_obj_len(const phot_elem *e)
+{
+    assert(e != NULL && e->type == PHOT_OBJ);
+    return e->olen;
+}
+
+size_t phot_get_obj_cap(const phot_elem *e)
+{
+    assert(e != NULL && e->type == PHOT_OBJ);
+    return e->ocap;
+}
+
+void phot_reserve_obj(phot_elem *e, size_t cap)
+{
+    assert(e != NULL && e->type == PHOT_OBJ);
+    if (cap > e->ocap) {
+        e->obj = (phot_member *)realloc(e->obj, cap * sizeof(phot_member));
+        e->ocap = cap;
+    }
+}
+
+void phot_shrink_obj(phot_elem *e)
+{
+    assert(e != NULL && e->type == PHOT_OBJ);
+    if (e->olen < e->ocap) {
+        e->obj = (phot_member *)realloc(e->obj, e->olen * sizeof(phot_member));
+        e->ocap = e->olen;
+    }
+}
+
+void phot_clear_obj(phot_elem *e)
+{
+    assert(e != NULL && e->type == PHOT_OBJ);
+    for (size_t i = 0; i < e->olen; i++) {
+        free(e->obj[i].key);
+        phot_free(&e->obj[i].value);
+    }
+    e->olen = 0;
 }
 
 const char *phot_get_obj_key(const phot_elem *e, size_t index)
@@ -696,8 +898,49 @@ phot_elem *phot_get_obj_value(const phot_elem *e, size_t index)
     return &e->obj[index].value;
 }
 
-size_t phot_get_obj_size(const phot_elem *e)
+size_t phot_find_obj_index(const phot_elem *e, const char *key, size_t klen)
 {
-    assert(e != NULL && e->type == PHOT_OBJ);
-    return e->olen;
+    assert(e != NULL && e->type == PHOT_OBJ && key != NULL);
+    for (size_t i = 0; i < e->olen; i++) {
+        if (e->obj[i].klen == klen && memcmp(e->obj[i].key, key, klen) == 0) {
+            return i;
+        }
+    }
+    return PHOT_KEY_NOT_EXIST;
+}
+
+phot_elem *phot_find_obj_value(const phot_elem *e, const char *key, size_t klen)
+{
+    assert(e != NULL && e->type == PHOT_OBJ && key != NULL);
+    size_t index = phot_find_obj_index(e, key, klen);
+    return index == PHOT_KEY_NOT_EXIST ? NULL : &e->obj[index].value;
+}
+
+phot_elem *phot_set_obj_value(phot_elem *e, const char *key, size_t klen)
+{
+    assert(e != NULL && e->type == PHOT_OBJ && key != NULL);
+    size_t index = phot_find_obj_index(e, key, klen);
+    if (index == PHOT_KEY_NOT_EXIST) {
+        if (e->olen == e->ocap) {
+            phot_reserve_obj(e, e->ocap == 0 ? 1 : e->ocap * 2);
+        }
+        index = e->olen++;
+        e->obj[index].key = (char *)malloc(klen + 1);
+        memcpy(e->obj[index].key, key, klen);
+        e->obj[index].key[klen] = '\0';
+        e->obj[index].klen = klen;
+        phot_init(&e->obj[index].value);
+    }
+    return &e->obj[index].value;
+}
+
+void phot_remove_obj_value(phot_elem *e, size_t index)
+{
+    assert(e != NULL && e->type == PHOT_OBJ && index < e->olen);
+    free(e->obj[index].key);
+    phot_free(&e->obj[index].value);
+    if (index < e->olen - 1) {
+        memmove(&e->obj[index], &e->obj[index + 1], (e->olen - index - 1) * sizeof(phot_member));
+    }
+    e->olen--;
 }
