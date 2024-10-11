@@ -516,6 +516,16 @@ static void test_swap(void)
     phot_free(&e2);
 }
 
+static void test_file(void)
+{
+    phot_elem *e1 = phot_read_from_file("test.in.json");
+    phot_write_to_file(e1, "test.out.json");
+    phot_elem *e2 = phot_read_from_file("test.out.json");
+    EXPECT_TRUE(phot_is_equal(e1, e2));
+    phot_free(e1);
+    phot_free(e2);
+}
+
 static void test_access_null(void)
 {
     phot_elem e;
@@ -717,6 +727,7 @@ int main(void)
     test_copy();
     test_move();
     test_swap();
+    test_file();
     test_access();
     printf("%d/%d (%3.2f%%) passed\n", test_pass, test_count, test_pass * 100.0 / test_count);
     return main_ret;

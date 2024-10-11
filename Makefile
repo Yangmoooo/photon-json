@@ -12,10 +12,10 @@ SRC = photjson.c test.c
 OBJ = $(SRC:.c=.o)
 OBJ := $(addprefix build/,$(OBJ))
 
+build: $(TARGET)
+
 test: build
 	$(TARGET)
-
-build: $(TARGET)
 
 $(TARGET): $(OBJ)
 	$(CC) $(LDFLAGS) -o $@ $^
@@ -29,4 +29,4 @@ dir:
 clean:
 	rm -rf build/*
 
-.PHONY: test build dir clean
+.PHONY: build test dir clean
