@@ -5,11 +5,17 @@ Welcome to Photon JSON, a naive JSON library built as a C learning project. This
 ## Features
 
 - Standards-Compliant JSON Parser and Generator
+- Supports Null, Boolean, Number, String, Array, and Object
+- Double Precision for Numbers
+- Dynamic JSON Structure for Creation and Manipulation Arrays and Objects
 - Handwritten Recursive Descent Parser
 - Modern C11 Standard
 - Cross-Platform (On Windows you may need Make and Bash provided by Git)
 - UTF-8 Support
-- Double Precision for Numbers
+
+## Usage
+
+To use Photon JSON, include the header file `photjson.h` and link the source file `photjson.c` with your project. This library is designed to be simple and easy to use. Detailed documentation can be found in `photjson.h`. You can use `make test` to build and run the test suite.
 
 ## Contributing
 
