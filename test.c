@@ -669,14 +669,14 @@ static void test_access_obj(void)
 
     index = phot_find_obj_index(&o, "j", 1);
     EXPECT_TRUE(index != PHOT_KEY_NOT_EXIST);
-    phot_remove_obj_value(&o, index);
+    phot_remove_obj_member(&o, index);
     index = phot_find_obj_index(&o, "j", 1);
     EXPECT_TRUE(index == PHOT_KEY_NOT_EXIST);
     EXPECT_EQ_SIZE_T(9, phot_get_obj_len(&o));
 
     index = phot_find_obj_index(&o, "a", 1);
     EXPECT_TRUE(index != PHOT_KEY_NOT_EXIST);
-    phot_remove_obj_value(&o, index);
+    phot_remove_obj_member(&o, index);
     index = phot_find_obj_index(&o, "a", 1);
     EXPECT_TRUE(index == PHOT_KEY_NOT_EXIST);
     EXPECT_EQ_SIZE_T(8, phot_get_obj_len(&o));

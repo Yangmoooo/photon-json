@@ -573,6 +573,54 @@ char *phot_stringify(const phot_elem *e, size_t *len)
     return c.stack;
 }
 
+phot_elem *phot_read_from_file(const char *filename)
+{
+    FILE *fp;
+    if (fopen_s(&fp, filename, "r") != 0) {
+        fprintf(stderr, "Failed to open file: %s\n", filename);
+        return NULL;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    char *json = (char *)malloc(size + 1);
+    fread(json, 1, size, fp);
+    json[size] = '\0';
+    fclose(fp);
+
+    phot_elem *e = (phot_elem *)malloc(sizeof(phot_elem));
+    int ret = phot_parse(e, json);
+    free(json);
+    if (ret != PHOT_PARSE_OK) {
+        free(e);
+        fprintf(stderr, "Failed to parse JSON: %d\n", ret);
+        return NULL;
+    }
+    return e;
+}
+
+int phot_write_to_file(const phot_elem *e, const char *filename)
+{
+    FILE *fp;
+    if (fopen_s(&fp, filename, "w") != 0) {
+        fprintf(stderr, "Failed to open file: %s\n", filename);
+        return -1;
+    }
+
+    size_t len;
+    char *json = phot_stringify(e, &len);
+    if (fwrite(json, 1, len, fp) != len) {
+        fprintf(stderr, "Failed to write to file: %s\n", filename);
+        free(json);
+        fclose(fp);
+        return -1;
+    }
+    free(json);
+    fclose(fp);
+    return 0;
+}
+
 void phot_copy(phot_elem *dst, const phot_elem *src)
 {
     assert(dst != NULL && src != NULL && dst != src);
@@ -651,32 +699,32 @@ phot_type phot_get_type(const phot_elem *e)
     return e->type;
 }
 
-int phot_is_equal(const phot_elem *lhs, const phot_elem *rhs)
+bool phot_is_equal(const phot_elem *lhs, const phot_elem *rhs)
 {
     assert(lhs != NULL && rhs != NULL);
-    if (lhs->type != rhs->type) return 0;
+    if (lhs->type != rhs->type) return false;
     switch (lhs->type) {
         case PHOT_NUM:
             return lhs->num == rhs->num;
         case PHOT_STR:
             return lhs->slen == rhs->slen && memcmp(lhs->str, rhs->str, lhs->slen) == 0;
         case PHOT_ARR:
-            if (lhs->alen != rhs->alen) return 0;
+            if (lhs->alen != rhs->alen) return false;
             for (size_t i = 0; i < lhs->alen; i++) {
-                if (!phot_is_equal(&lhs->arr[i], &rhs->arr[i])) return 0;
+                if (!phot_is_equal(&lhs->arr[i], &rhs->arr[i])) return false;
             }
-            return 1;
+            return true;
         case PHOT_OBJ:
-            if (lhs->olen != rhs->olen) return 0;
+            if (lhs->olen != rhs->olen) return false;
             for (size_t i = 0; i < lhs->olen; i++) {
                 phot_elem *value = phot_find_obj_value(lhs, rhs->obj[i].key, rhs->obj[i].klen);
-                if (value == NULL || !phot_is_equal(value, &rhs->obj[i].value)) return 0;
+                if (value == NULL || !phot_is_equal(value, &rhs->obj[i].value)) return false;
             }
-            return 1;
+            return true;
         case PHOT_BOOL:
             return lhs->boolean == rhs->boolean;
         default:
-            return 1;
+            return true;
     }
 }
 
@@ -934,7 +982,7 @@ phot_elem *phot_set_obj_value(phot_elem *e, const char *key, size_t klen)
     return &e->obj[index].value;
 }
 
-void phot_remove_obj_value(phot_elem *e, size_t index)
+void phot_remove_obj_member(phot_elem *e, size_t index)
 {
     assert(e != NULL && e->type == PHOT_OBJ && index < e->olen);
     free(e->obj[index].key);
