@@ -524,6 +524,8 @@ static void test_file(void)
     EXPECT_TRUE(phot_is_equal(e1, e2));
     phot_free(e1);
     phot_free(e2);
+    free(e1);
+    free(e2);
 }
 
 static void test_access_null(void)

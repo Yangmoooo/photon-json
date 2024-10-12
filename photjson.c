@@ -575,8 +575,8 @@ char *phot_stringify(const phot_elem *e, size_t *len)
 
 phot_elem *phot_read_from_file(const char *filename)
 {
-    FILE *fp;
-    if (fopen_s(&fp, filename, "r") != 0) {
+    FILE *fp = fopen(filename, "r");
+    if (fp == NULL) {
         fprintf(stderr, "Failed to open file: %s\n", filename);
         return NULL;
     }
@@ -602,8 +602,8 @@ phot_elem *phot_read_from_file(const char *filename)
 
 int phot_write_to_file(const phot_elem *e, const char *filename)
 {
-    FILE *fp;
-    if (fopen_s(&fp, filename, "w") != 0) {
+    FILE *fp = fopen(filename, "w");
+    if (fp == NULL) {
         fprintf(stderr, "Failed to open file: %s\n", filename);
         return -1;
     }
@@ -783,7 +783,7 @@ void phot_set_arr(phot_elem *e, size_t cap)
 {
     assert(e != NULL);
     phot_free(e);
-    e->arr = cap > 0 ? (phot_elem *)malloc(cap * sizeof(phot_elem)) : NULL;
+    e->arr = cap > 0 ? (phot_elem *)calloc(cap, sizeof(phot_elem)) : NULL;
     e->alen = 0;
     e->acap = cap;
     e->type = PHOT_ARR;
@@ -814,7 +814,11 @@ void phot_shrink_arr(phot_elem *e)
 {
     assert(e != NULL && e->type == PHOT_ARR);
     if (e->alen < e->acap) {
-        e->arr = (phot_elem *)realloc(e->arr, e->alen * sizeof(phot_elem));
+        if (e->alen == 0) {
+            phot_clear_arr(e);
+        } else {
+            e->arr = (phot_elem *)realloc(e->arr, e->alen * sizeof(phot_elem));
+        }
         e->acap = e->alen;
     }
 }
@@ -910,7 +914,11 @@ void phot_shrink_obj(phot_elem *e)
 {
     assert(e != NULL && e->type == PHOT_OBJ);
     if (e->olen < e->ocap) {
-        e->obj = (phot_member *)realloc(e->obj, e->olen * sizeof(phot_member));
+        if (e->olen == 0) {
+            phot_clear_obj(e);
+        } else {
+            e->obj = (phot_member *)realloc(e->obj, e->olen * sizeof(phot_member));
+        }
         e->ocap = e->olen;
     }
 }

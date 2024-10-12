@@ -1,5 +1,10 @@
 CC = clang
-CFLAGS = -Wall -Wextra -Werror -Wpedantic -std=c11 -march=native -O2 -g
+MODE = debug
+ifeq ($(MODE),debug)
+	CFLAGS = -Wall -Wextra -Wpedantic -std=c11 -O0 -g
+else
+	CFLAGS = -Wall -Wextra -Wpedantic -Werror -std=c11 -march=native -O2
+endif
 LDFLAGS = -g
 
 ifeq ($(OS),Windows_NT)
